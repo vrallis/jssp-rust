@@ -12,6 +12,7 @@ pub struct JsspApp {
     min_duration: f64,
     max_duration: f64,
     hidden_jobs: HashSet<usize>,
+    show_export_dialog: bool,
 }
 
 impl Default for JsspApp {
@@ -25,12 +26,28 @@ impl Default for JsspApp {
             min_duration: 1.0,
             max_duration: 10.0,
             hidden_jobs: HashSet::new(),
+            show_export_dialog: false,
         }
     }
 }
 
 impl eframe::App for JsspApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        // Configure better text rendering and sizing
+        let mut style = (*ctx.style()).clone();
+        style.text_styles = [
+            (egui::TextStyle::Heading, egui::FontId::new(24.0, egui::FontFamily::Proportional)),
+            (egui::TextStyle::Body, egui::FontId::new(16.0, egui::FontFamily::Proportional)),
+            (egui::TextStyle::Button, egui::FontId::new(16.0, egui::FontFamily::Proportional)),
+            (egui::TextStyle::Small, egui::FontId::new(14.0, egui::FontFamily::Proportional)),
+            (egui::TextStyle::Monospace, egui::FontId::new(14.0, egui::FontFamily::Monospace)),
+        ].into();
+        
+        // Make UI elements more visible
+        style.spacing.button_padding = egui::vec2(12.0, 6.0);
+        style.spacing.item_spacing = egui::vec2(10.0, 8.0);
+        ctx.set_style(style);
+        
         egui::CentralPanel::default().show(ctx, |ui| {
             ui.heading("Job Shop Scheduling Problem - Greedy Solver");
             ui.separator();
@@ -69,7 +86,7 @@ impl eframe::App for JsspApp {
             ui.separator();
 
             ui.horizontal(|ui| {
-                if ui.button("🎲 Generate Random Problem").clicked() {
+                if ui.add_sized([180.0, 32.0], egui::Button::new("Generate Problem")).clicked() {
                     let jobs = generate_random_instance(
                         self.num_jobs,
                         self.num_machines,
@@ -82,14 +99,20 @@ impl eframe::App for JsspApp {
                     self.hidden_jobs.clear();
                 }
 
-                if ui.button("▶️ Solve with Greedy Algorithm").clicked() {
+                if ui.add_sized([180.0, 32.0], egui::Button::new("Solve Schedule")).clicked() {
                     if let Some(solver) = &self.solver {
                         self.schedule = solver.solve_greedy();
                         self.makespan = solver.calculate_makespan(&self.schedule);
                     }
                 }
 
-                if ui.button("🗑️ Clear").clicked() {
+                if ui.add_sized([180.0, 32.0], egui::Button::new("Export Solution")).clicked() {
+                    if !self.schedule.is_empty() {
+                        self.show_export_dialog = true;
+                    }
+                }
+
+                if ui.add_sized([120.0, 32.0], egui::Button::new("Clear All")).clicked() {
                     self.solver = None;
                     self.schedule.clear();
                     self.makespan = 0.0;
@@ -117,7 +140,7 @@ impl eframe::App for JsspApp {
             } else {
                 ui.colored_label(
                     egui::Color32::GRAY,
-                    "No problem loaded. Click 'Generate Random Problem' to start."
+                    "No problem loaded. Click 'Generate Problem' to start."
                 );
             }
 
@@ -130,6 +153,56 @@ impl eframe::App for JsspApp {
                 self.render_gantt_chart(ui);
             }
         });
+
+        // Export dialog window
+        if self.show_export_dialog {
+            egui::Window::new("Export Solution")
+                .collapsible(false)
+                .resizable(false)
+                .default_width(400.0)
+                .show(ctx, |ui| {
+                    ui.heading("Choose Export Format");
+                    ui.add_space(10.0);
+                    
+                    ui.label("Select the format you want to export:");
+                    ui.add_space(10.0);
+
+                    if ui.add_sized([360.0, 30.0], egui::Button::new("JSON - Structured Data")).clicked() {
+                        self.export_with_dialog("json");
+                        self.show_export_dialog = false;
+                    }
+                    ui.small("Complete data with metadata for programmatic use");
+                    ui.add_space(8.0);
+
+                    if ui.add_sized([360.0, 30.0], egui::Button::new("CSV - Spreadsheet")).clicked() {
+                        self.export_with_dialog("csv");
+                        self.show_export_dialog = false;
+                    }
+                    ui.small("Table format compatible with Excel and analysis tools");
+                    ui.add_space(8.0);
+
+                    if ui.add_sized([360.0, 30.0], egui::Button::new("TXT - Summary Report")).clicked() {
+                        self.export_with_dialog("txt");
+                        self.show_export_dialog = false;
+                    }
+                    ui.small("Human-readable summary with formatted table");
+                    ui.add_space(8.0);
+
+                    if ui.add_sized([360.0, 30.0], egui::Button::new("ALL - Export All Formats")).clicked() {
+                        self.export_with_dialog("all");
+                        self.show_export_dialog = false;
+                    }
+                    ui.small("Save JSON, CSV, and TXT together to a folder");
+                    
+                    ui.add_space(15.0);
+                    ui.separator();
+                    ui.add_space(5.0);
+                    
+                    if ui.add_sized([360.0, 30.0], egui::Button::new("Cancel")).clicked() {
+                        self.show_export_dialog = false;
+                    }
+                });
+        }
     }
 }
 
@@ -363,5 +436,143 @@ impl JsspApp {
                         }
                     });
             });
+    }
+
+    fn export_with_dialog(&self, format: &str) {
+        use chrono::Local;
+        use rfd::FileDialog;
+
+        let timestamp = Local::now().format("%Y%m%d_%H%M%S");
+        
+        match format {
+            "json" => {
+                if let Some(path) = FileDialog::new()
+                    .set_file_name(&format!("jssp_solution_{}.json", timestamp))
+                    .add_filter("JSON", &["json"])
+                    .save_file() 
+                {
+                    self.export_json(&path.to_string_lossy());
+                }
+            }
+            "csv" => {
+                if let Some(path) = FileDialog::new()
+                    .set_file_name(&format!("jssp_solution_{}.csv", timestamp))
+                    .add_filter("CSV", &["csv"])
+                    .save_file()
+                {
+                    self.export_csv(&path.to_string_lossy());
+                }
+            }
+            "txt" => {
+                if let Some(path) = FileDialog::new()
+                    .set_file_name(&format!("jssp_summary_{}.txt", timestamp))
+                    .add_filter("Text", &["txt"])
+                    .save_file()
+                {
+                    self.export_summary(&path.to_string_lossy());
+                }
+            }
+            "all" => {
+                if let Some(dir) = FileDialog::new().pick_folder() {
+                    let dir_path = dir.to_string_lossy();
+                    let json_path = format!("{}/jssp_solution_{}.json", dir_path, timestamp);
+                    let csv_path = format!("{}/jssp_solution_{}.csv", dir_path, timestamp);
+                    let txt_path = format!("{}/jssp_summary_{}.txt", dir_path, timestamp);
+                    
+                    self.export_json(&json_path);
+                    self.export_csv(&csv_path);
+                    self.export_summary(&txt_path);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn export_json(&self, path: &str) {
+        use std::fs::File;
+        use std::io::Write;
+        use chrono::Local;
+
+        match serde_json::to_string_pretty(&serde_json::json!({
+            "metadata": {
+                "timestamp": Local::now().to_rfc3339(),
+                "num_jobs": self.num_jobs,
+                "num_machines": self.num_machines,
+                "makespan": self.makespan,
+                "algorithm": "Greedy"
+            },
+            "schedule": self.schedule
+        })) {
+            Ok(json_content) => {
+                if let Ok(mut file) = File::create(path) {
+                    if file.write_all(json_content.as_bytes()).is_ok() {
+                        println!("✓ Exported JSON to {}", path);
+                    }
+                }
+            }
+            Err(e) => println!("Failed to serialize JSON: {}", e),
+        }
+    }
+
+    fn export_csv(&self, path: &str) {
+        use std::fs::File;
+        use std::io::Write;
+
+        if let Ok(mut file) = File::create(path) {
+            let mut csv_content = String::from("Job,Operation,Machine,Start Time,End Time,Duration\n");
+            for op in &self.schedule {
+                csv_content.push_str(&format!(
+                    "{},{},{},{:.2},{:.2},{:.2}\n",
+                    op.job_id, op.operation_id, op.machine_id, 
+                    op.start_time, op.end_time, op.duration
+                ));
+            }
+            if file.write_all(csv_content.as_bytes()).is_ok() {
+                println!("✓ Exported CSV to {}", path);
+            }
+        }
+    }
+
+    fn export_summary(&self, path: &str) {
+        use std::fs::File;
+        use std::io::Write;
+        use chrono::Local;
+
+        if let Ok(mut file) = File::create(path) {
+            let summary = format!(
+                "JSSP Solution Summary\n\
+                =====================\n\
+                Timestamp: {}\n\
+                Algorithm: Greedy\n\
+                Number of Jobs: {}\n\
+                Number of Machines: {}\n\
+                Total Operations: {}\n\
+                Makespan: {:.2}\n\
+                \n\
+                Schedule Details:\n\
+                -----------------\n",
+                Local::now().format("%Y-%m-%d %H:%M:%S"),
+                self.num_jobs,
+                self.num_machines,
+                self.schedule.len(),
+                self.makespan
+            );
+            
+            let mut full_content = summary;
+            full_content.push_str("Job | Op | Machine | Start  | End    | Duration\n");
+            full_content.push_str("----+----+---------+--------+--------+---------\n");
+            
+            for op in &self.schedule {
+                full_content.push_str(&format!(
+                    "{:3} | {:2} | {:7} | {:6.2} | {:6.2} | {:6.2}\n",
+                    op.job_id, op.operation_id, op.machine_id,
+                    op.start_time, op.end_time, op.duration
+                ));
+            }
+            
+            if file.write_all(full_content.as_bytes()).is_ok() {
+                println!("✓ Exported summary to {}", path);
+            }
+        }
     }
 }

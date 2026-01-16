@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use serde::Serialize;
 
 #[derive(Debug, Clone)]
 pub struct Job {
@@ -7,6 +8,7 @@ pub struct Job {
 }
 
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct Operation {
     pub job_id: usize,
     pub operation_id: usize,
@@ -14,7 +16,7 @@ pub struct Operation {
     pub duration: f64,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct ScheduledOperation {
     pub job_id: usize,
     pub operation_id: usize,
